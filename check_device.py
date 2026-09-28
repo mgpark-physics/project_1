@@ -1,3 +1,4 @@
+# Check which PyTorch accelerator is available
 import torch
 
 device = "cpu"

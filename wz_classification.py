@@ -15,7 +15,7 @@ print(f"Using {device} device")
 
 wz_classes = ['z','w'] # Massive gauge bosons?
 
-class WZDataset(Dataset):
+class WZDataset(Dataset): # Dataset = 1 or 2 -> open npy files
     def __init__(self,set_number:int):
         xsim = np.load('wz_data_'+str(set_number)+'.npy')
         xlab = np.load('wz_labels_'+str(set_number)+'.npy')
@@ -28,7 +28,7 @@ class WZDataset(Dataset):
         
 
 
-class WZClassifier(nn.Module):
+class WZClassifier(nn.Module): # 2 inputs, 3 hidden layers, 100 nodes each, ReLU activation, 2 output nodes
     def __init__(self):
         super().__init__()
         self.stack = nn.Sequential(
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
     torch.manual_seed(1)
 
-    for set_number in [1, 2]:
+    for set_number in [1, 2]: # Dataset 1 and 2
 
         print(f"\n========== DATASET {set_number} ==========")
 

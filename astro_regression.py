@@ -528,6 +528,388 @@ def plot_estimated_y_vs_radius(
     plt.close(fig)
 
 
+# ============================================================
+# (f) Prediction on the unlabeled test set
+# ============================================================
+
+def predict_test_dataset(the_model, test_dataset):
+
+    loader = DataLoader(
+        test_dataset,
+        batch_size=400,
+        shuffle=False,
+    )
+
+    y_pred = []
+    radii = []
+
+    the_model.eval()
+
+    with torch.no_grad():
+
+        for data, guiding in loader:
+
+            inputs = data.to(device)
+
+            outputs = the_model(inputs)
+
+            y_pred.append(
+                outputs.detach().cpu().numpy().reshape(-1)
+            )
+
+            radii.append(
+                guiding.detach().cpu().numpy().reshape(-1)
+            )
+
+    y_pred = np.concatenate(y_pred)
+    radii = np.concatenate(radii)
+
+    return y_pred, radii
+
+
+def plot_test_yhat_vs_radius(
+    yhat_test,
+    r_test,
+    filename="astro_test_estimated_y_vs_radius.pdf",
+):
+
+    centers, mean_test, counts = binned_mean(
+        yhat_test,
+        r_test,
+        R_BINS,
+    )
+
+    fig, ax = plt.subplots(figsize=(5.2, 4.2))
+
+    ax.plot(
+        centers,
+        mean_test,
+        marker="x",
+        linestyle="none",
+        label=f"Test ($N={len(yhat_test)}$)",
+    )
+
+    ax.set_xlim(0, 14)
+
+    ax.set_xlabel(r"Guiding radius $r$")
+    ax.set_ylabel(r"Mean estimated label $\hat{y}$")
+
+    ax.legend(frameon=False)
+
+    fig.tight_layout()
+    fig.savefig(filename)
+    plt.close(fig)
+
+    return centers, mean_test, counts
+
+
+
+# ============================================================
+# (g) Compare true, known-set estimate, and test-set estimate
+# ============================================================
+
+def plot_three_way_comparison(
+    the_model,
+    labeled_dataset,
+    yhat_test,
+    r_test,
+    filename="astro_three_way_comparison.pdf",
+):
+
+    # True labels and guiding radius on the full labeled set
+    y_true = (
+        labeled_dataset.labels
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(-1)
+    )
+
+    r_known = (
+        labeled_dataset.guiding
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(-1)
+    )
+
+    # Model predictions on the same labeled set
+    _, yhat_known, _ = predict_labeled_subset(
+        the_model,
+        labeled_dataset,
+    )
+
+    # Bin all three relationships using exactly the same r bins
+    centers, mean_true, _ = binned_mean(
+        y_true,
+        r_known,
+        R_BINS,
+    )
+
+    _, mean_known, _ = binned_mean(
+        yhat_known,
+        r_known,
+        R_BINS,
+    )
+
+    _, mean_test, _ = binned_mean(
+        yhat_test,
+        r_test,
+        R_BINS,
+    )
+
+    fig, ax = plt.subplots(figsize=(5.4, 4.4))
+
+    ax.plot(
+        centers,
+        mean_true,
+        marker="o",
+        linestyle="none",
+        markerfacecolor="none",
+        label="True labels, known set",
+    )
+
+    ax.plot(
+        centers,
+        mean_known,
+        marker="s",
+        linestyle="none",
+        markerfacecolor="none",
+        label="Estimated labels, known set",
+    )
+
+    ax.plot(
+        centers,
+        mean_test,
+        marker="x",
+        linestyle="none",
+        label="Estimated labels, test set",
+    )
+
+    ax.set_xlim(0, 14)
+
+    ax.set_xlabel(r"Guiding radius $r$")
+    ax.set_ylabel(r"Mean label")
+
+    ax.legend(frameon=False)
+
+    fig.tight_layout()
+    fig.savefig(filename)
+    plt.close(fig)
+
+
+
+# ============================================================
+# (h) Binned mean and naive standard error
+# ============================================================
+
+def binned_mean_and_se(y, r, bins):
+
+    centers = 0.5 * (bins[:-1] + bins[1:])
+
+    means = np.full(len(centers), np.nan)
+    errors = np.full(len(centers), np.nan)
+    counts = np.zeros(len(centers), dtype=int)
+
+    for i in range(len(centers)):
+
+        mask = (r >= bins[i]) & (r < bins[i + 1])
+
+        values = y[mask]
+        counts[i] = len(values)
+
+        if len(values) > 0:
+            means[i] = np.mean(values)
+
+        if len(values) > 1:
+            errors[i] = np.std(values, ddof=1) / np.sqrt(len(values))
+
+    return centers, means, errors, counts
+
+
+def plot_three_way_comparison_with_errors(
+    the_model,
+    labeled_dataset,
+    yhat_test,
+    r_test,
+    filename="astro_three_way_comparison_errors.pdf",
+):
+
+    # Full known/labeled sample
+    y_true = (
+        labeled_dataset.labels
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(-1)
+    )
+
+    r_known = (
+        labeled_dataset.guiding
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(-1)
+    )
+
+    # Predictions on known/labeled sample
+    _, yhat_known, _ = predict_labeled_subset(
+        the_model,
+        labeled_dataset,
+    )
+
+    # True labels, known set
+    centers, mean_true, se_true, n_true = binned_mean_and_se(
+        y_true,
+        r_known,
+        R_BINS,
+    )
+
+    # Estimated labels, known set
+    _, mean_known, se_known, n_known = binned_mean_and_se(
+        yhat_known,
+        r_known,
+        R_BINS,
+    )
+
+    # Estimated labels, test set
+    _, mean_test, se_test, n_test = binned_mean_and_se(
+        yhat_test,
+        r_test,
+        R_BINS,
+    )
+
+    fig, ax = plt.subplots(figsize=(5.4, 4.4))
+
+    ax.errorbar(
+        centers,
+        mean_true,
+        yerr=se_true,
+        marker="o",
+        linestyle="none",
+        markerfacecolor="none",
+        capsize=2,
+        label="True labels, known set",
+    )
+
+    ax.errorbar(
+        centers,
+        mean_known,
+        yerr=se_known,
+        marker="s",
+        linestyle="none",
+        markerfacecolor="none",
+        capsize=2,
+        label="Estimated labels, known set",
+    )
+
+    ax.errorbar(
+        centers,
+        mean_test,
+        yerr=se_test,
+        marker="x",
+        linestyle="none",
+        capsize=2,
+        label="Estimated labels, test set",
+    )
+
+    ax.set_xlim(0, 14)
+
+    ax.set_xlabel(r"Guiding radius $r$")
+    ax.set_ylabel(r"Mean label")
+
+    ax.legend(frameon=False)
+
+    fig.tight_layout()
+    fig.savefig(filename)
+    plt.close(fig)
+
+    return (
+        centers,
+        mean_true,
+        se_true,
+        mean_known,
+        se_known,
+        mean_test,
+        se_test,
+        n_test,
+    )
+
+
+def print_bin_statistics(
+    centers,
+    mean_true,
+    se_true,
+    mean_known,
+    se_known,
+    mean_test,
+    se_test,
+    n_test,
+):
+
+    deviation = mean_test - mean_true
+    significance = deviation / se_test
+
+    print()
+    print("Binned population comparison")
+    print("----------------------------")
+
+    print(
+        "   r    "
+        " true mean   true SE   "
+        "test mean   test SE   "
+        "difference   test-sigma"
+    )
+
+    for i in range(len(centers)):
+
+        print(
+            f"{centers[i]:5.1f}  "
+            f"{mean_true[i]:9.4f}  "
+            f"{se_true[i]:8.4f}  "
+            f"{mean_test[i]:9.4f}  "
+            f"{se_test[i]:8.4f}  "
+            f"{deviation[i]:10.4f}  "
+            f"{significance[i]:10.2f}"
+        )
+
+    valid = np.isfinite(significance)
+
+    worst_index = np.where(valid)[0][
+        np.argmax(np.abs(significance[valid]))
+    ]
+
+    print()
+    print("Worst test-set deviation from truth")
+    print("-----------------------------------")
+    print(f"Guiding-radius bin center: {centers[worst_index]:.1f}")
+    print(f"True mean:                {mean_true[worst_index]:.4f}")
+    print(f"Test estimated mean:      {mean_test[worst_index]:.4f}")
+    print(f"Difference:               {deviation[worst_index]:.4f}")
+    print(f"Test standard error:      {se_test[worst_index]:.4f}")
+    print(
+        f"Deviation / test SE:      "
+        f"{significance[worst_index]:.2f} sigma"
+    )
+
+    print()
+    print(
+        f"Mean true-label SE:       "
+        f"{np.nanmean(se_true):.4f}"
+    )
+
+    print(
+        f"Mean known-estimate SE:   "
+        f"{np.nanmean(se_known):.4f}"
+    )
+
+    print(
+        f"Mean test-estimate SE:    "
+        f"{np.nanmean(se_test):.4f}"
+    )
+
+
+
 if __name__ == "__main__":
 
     # Reproducibility
@@ -602,10 +984,87 @@ if __name__ == "__main__":
         train_set,
         val_set,
     )
-
     print()
     print("Saved:")
     print("  astro_true_y_vs_radius.pdf")
     print("  astro_validation_true_vs_pred.pdf")
     print("  astro_estimated_y_vs_radius.pdf")
     print("  astro_age_model.pt")
+
+
+
+        # ========================================================
+    # (f) Run regression on the unlabeled test set
+    # ========================================================
+
+    test_dataset = AstroTestDataset()
+
+    yhat_test, r_test = predict_test_dataset(
+        model,
+        test_dataset,
+    )
+
+    print()
+    print(f"Test events: {len(test_dataset)}")
+
+    print(
+        f"test predicted y: mean = {np.mean(yhat_test):.3f}, "
+        f"std = {np.std(yhat_test):.3f}"
+    )
+
+    plot_test_yhat_vs_radius(
+        yhat_test,
+        r_test,
+    )
+
+    # ========================================================
+    # (g) Compare all three relationships
+    # ========================================================
+
+    plot_three_way_comparison(
+        model,
+        labeled_dataset,
+        yhat_test,
+        r_test,
+    )
+
+    print()
+    print("Saved:")
+    print("  astro_test_estimated_y_vs_radius.pdf")
+    print("  astro_three_way_comparison.pdf")
+
+
+        # ========================================================
+    # (h) Naive standard errors and worst deviation
+    # ========================================================
+
+    (
+        centers,
+        mean_true,
+        se_true,
+        mean_known,
+        se_known,
+        mean_test,
+        se_test,
+        n_test,
+    ) = plot_three_way_comparison_with_errors(
+        model,
+        labeled_dataset,
+        yhat_test,
+        r_test,
+    )
+
+    print_bin_statistics(
+        centers,
+        mean_true,
+        se_true,
+        mean_known,
+        se_known,
+        mean_test,
+        se_test,
+        n_test,
+    )
+
+    print()
+    print("Saved:")
+    print("  astro_three_way_comparison_errors.pdf")
